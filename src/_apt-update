@@ -1,0 +1,30 @@
+#comdef apt-update-repo
+
+apt-update-repo() {
+    for repo ($*) if [ "$repo" = "MAIN" ]; then
+        sudo apt-get update -o Dir::Etc::sourcelist="sources.list" \
+            -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0"
+      else
+        sudo apt-get update -o Dir::Etc::sourcelist="sources.list.d/$repo.list" \
+            -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0"
+   fi
+}
+
+_apt-update-repo() {
+  local curcontext="$curcontext" state line expl
+
+  _arguments \
+    '*:: :->repos'
+
+  case "$state" in
+    repos)
+      local file=${words[CURRENT]}
+      _wanted repo expl 'repository' \
+      compadd -F line - MAIN /etc/apt/sources.list.d/*.list(:r:t)
+      compstate[insert]=menu # add this
+      ;;
+  esac
+  return 0
+}
+
+compdef _apt-update-repo apt-update-repo
