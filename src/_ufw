@@ -1,6 +1,6 @@
 #compdef ufw
 # ------------------------------------------------------------------------------
-# Copyright (c) 2016 Github zsh-users - http://github.com/zsh-users
+# Copyright (c) 2016 Github zsh-users - https://github.com/zsh-users
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -105,6 +105,7 @@ _ufw() {
       "status:show firewall status"
       "show:show firewall report"
       "version:display version information"
+      "prepend:add rule before all of the same type"
     )
 
     _arguments -C -s -S -n \
