@@ -10,9 +10,68 @@ _yarn_recursively_look_for() {
     dir="$PWD/$workspace_path"
   fi
 
-  while [ ! -e "$dir/$filename" ]; do
-    dir=${dir%/*}
-    [[ "$dir" = "" ]] && break
+_commands=(
+  'access'
+  'audit:Checks for known security issues with the installed packages'
+  'autoclean:Clean and remove unnecessary files from package dependencies'
+  'cache:List or clean every cached package'
+  "check:Verify package dependencies against yarn's lock file"
+  'config:Manages the yarn configuration files'
+  'create:Creates new projects from any create-* starter kits'
+  'exec'
+  'generate-lock-entry:Generates a lock file entry'
+  'global:Install packages globally on your operating system'
+  'help:Show information about a command'
+  'import:Generate yarn.lock from an existing npm-installed node_modules folder'
+  'info:Show information about a package'
+  'init:Interactively creates or updates a package.json file'
+  'install:Install all the dependencies listed within package.json'
+  'licenses:List licenses for installed packages'
+  'link:Symlink a package folder during development'
+  'login:Store registry username and email'
+  'logout:Clear registry username and email'
+  'node:Runs Node with the same version that the one used by Yarn itself'
+  'outdated:Check for outdated package dependencies'
+  'owner:Manage package owners'
+  'pack:Create a compressed gzip archive of package dependencies'
+  'policies:Defines project-wide policies for your project'
+  'publish:Publish a package to the npm registry'
+  'run:Run a defined package script'
+  'tag:Add, remove, or list tags on a package'
+  'team:Maintain team memberships'
+  'unlink:Unlink a previously created symlink for a package'
+  'unplug:Temporarily copies a package outside of the global cache for debugging purposes'
+  'version:Update the package version'
+  'versions:Display version information of currently installed Yarn, Node.js, and its dependencies'
+  'why:Show information about why a package is installed'
+  'workspace'
+  'workspaces:Show information about your workspaces'
+)
+
+_global_commands=(
+  'add:Installs a package and any packages that it depends on'
+  'bin:Displays the location of the yarn bin folder'
+  'list:List installed packages'
+  'remove:Remove installed package from dependencies updating package.json'
+  'upgrade:Upgrades packages to their latest version based on the specified range'
+  'upgrade-interactive:Interactively upgrade packages'
+)
+
+_yarn_find_package_json() {
+  local dir=$(builtin cd "$1" && pwd)
+
+  while true
+  do
+    if [[ -e "${dir}/package.json" ]]; then
+      echo "${dir}/package.json"
+      return
+    fi
+
+    if [[ $dir == '/' ]]; then
+      break
+    fi
+
+    dir=$(dirname $dir)
   done
 
   [[ ! "$dir" = "" ]] && echo "$dir/$filename"
@@ -22,157 +81,45 @@ _yarn_get_package_json_property_object() {
   local package_json="$1"
   local property="$2"
 
-  # cat command prints package.json file
-  # first sed command grabs scripts object
-  # second sed command removes first & last lines
-  # third sed command parses into key=>value
-  cat "$package_json" |
-    sed -nE "/^[  ]+\"$property\": \{$/,/^[  ]+\},?$/p" |
-    sed '1d;$d' |
-    sed -E 's/[  ]+"([^"]+)": "(.+)",?/\1=>\2/'
+  if [[ -n $opt_args[--cwd] ]]; then
+    packageJson=$(_yarn_find_package_json $opt_args[--cwd])
+    binaries=($(builtin cd $opt_args[--cwd] && echo node_modules/.bin/*(x:t)))
+  else
+    packageJson=$(_yarn_find_package_json $pwd)
+    binaries=($(echo node_modules/.bin/*(x:t)))
+  fi
+
+  if [[ -n $packageJson ]]; then
+    scripts=($(cat "$packageJson" | perl -0777 -MJSON::PP -n -E '$r=decode_json($_); do{($k=$_)=~s/:/\\:/g;say $k}for sort keys %{$r->{scripts}}'))
+  fi
+
+  _describe 'command or script' _commands -- _global_commands -- scripts -- binaries
 }
 
 _yarn_get_package_json_property_object_keys() {
   local package_json="$1"
   local property="$2"
 
-  _yarn_get_package_json_property_object "$package_json" "$property" | cut -f 1 -d "="
-}
-
-_yarn_parse_package_json_for_script_suggestions() {
-  local package_json="$1"
-
-  # first sed command parses commands info suggestions
-  # second sed command escapes ":" in commands
-  # third sed command escapes ":$" without a space in commands
-  _yarn_get_package_json_property_object "$package_json" scripts |
-    sed -E 's/(.+)=>(.+)/\1:$ \2/' |
-    sed 's/\(:\)[^$]/\\&/g' |
-    sed 's/\(:\)$[^ ]/\\&/g'
-}
-
-_yarn_parse_package_json_for_deps() {
-  local package_json="$1"
-
-  _yarn_get_package_json_property_object_keys "$package_json" dependencies
-  _yarn_get_package_json_property_object_keys "$package_json" devDependencies
-}
-
-_yarn_get_scripts_from_package_json() {
-  local package_json
-  package_json="$(_yarn_recursively_look_for package.json)"
-
-  [[ "$package_json" = "" ]] && return
-
-  local -a options
-  options=(
-    ${(f)"$(_yarn_parse_package_json_for_script_suggestions $package_json)"} \
-    env:"Prints list of environment variables available to the scripts at runtime" \
-  )
-
-  _describe -t package-scripts "package scripts" options
-}
-
-_yarn_get_scripts_from_workspace_package_json() {
-  local -a options
-
-  package_json="$(_yarn_recursively_look_for package.json "$location")"
-
-  [[ "$package_json" = "" ]] && return
-
-  options=(
-    ${(f)"$(_yarn_parse_package_json_for_script_suggestions $package_json)"} \
-    env:"Prints list of environment variables available to the scripts at runtime" \
-  )
-
-  _describe -t package-scripts "package scripts" options
-}
-
-_yarn_get_packages_from_package_json() {
-  local package_json
-  package_json="$(_yarn_recursively_look_for package.json)"
-
-  # Return if we can’t find package.json
-  [[ "$package_json" = "" ]] && return
-
-  _values \
-  "description" \
-  $(_yarn_parse_package_json_for_deps "$package_json")
-}
-
-_yarn_get_packages_from_global_package_json() {
-  local global_dir
-  global_dir="$(yarn global dir)"
-  local package_json
-  package_json="$global_dir/package.json"
-
-  # Return if we can’t find package.json
-  [[ "$package_json" = "" ]] && return
-
-  _values \
-  "description" \
-  $(_yarn_parse_package_json_for_deps "$package_json")
-}
-
-_yarn_get_packages_from_workspace_package_json() {
-  local package_json
-
-  package_json="$(_yarn_recursively_look_for package.json $location)"
-
-  # Return if we can’t find package.json
-  [[ "$package_json" = "" ]] && return
-
-  _values $(_yarn_parse_package_json_for_deps "$package_json")
-}
-
-_yarn_completion_global_commands() {
-  case $words[2] in
-    add)
-      _values $(_yarn_get_cached_packages) \
-    ;;
-    remove)
-      _yarn_get_packages_from_global_package_json
-    ;;
-    upgrade | uprade-interactive)
-      _yarn_get_packages_from_global_package_json
-    ;;
-  esac
-}
-
-_yarn_get_cached_packages() { # todo: find faster method to get cached packages
-  yarn cache list |
-  awk '{ print $1 }' |
-  sed '1d;2d;$d'
-}
-
-_yarn_get_workspaces() { # add condition if pwd is not yarn workspace
-  local -a workspaces
-  local object
-
-  # get workspace metadata as json object or assign string 'error' to variable
-  # `object`
-  object="$(
-    yarn workspaces info ||
-    echo 'error'
-  )"
-
-  if [[ ! $object =~ 'error' ]]; then
-    # the first sed command extracts workspace name keys from the json input;
-    # the second sed command removes quotes, spaces, colon, and brace
-    for workspace in $(
-      echo $object |
-      sed -nE '/".+": \{/p' |
-      sed -e 's/^[ "]*//' -e 's/\(": {\)*$//' ||
-    ); do
-      workspaces+=($workspace)
-    done
-
-    _describe -t workspace-names "workspaces names" workspaces
+  if [[ -n $_yarn_run_cwd ]]; then
+    packageJson=$(_yarn_find_package_json $_yarn_run_cwd)
+    if [[ -d "${_yarn_run_cwd}/node_modules" ]]; then
+      binaries=($(builtin cd $_yarn_run_cwd && echo node_modules/.bin/*(x:t)))
+    else
+      binaries=($(builtin cd $_yarn_run_cwd && yarn bin | perl -wln -e 'm{^[^:]+: (\S+)$} and print $1'))
+    fi
+  else
+    packageJson=$(_yarn_find_package_json $pwd)
+    if [[ -d node_modules ]]; then
+      binaries=($(echo node_modules/.bin/*(x:t)))
+    else
+      binaries=($(yarn bin | perl -wln -e 'm{^[^:]+: (\S+)$} and print $1'))
+    fi
   fi
 }
 
-_yarn_workspace_commands() {
-  local location workspace_name package_json
+  if [[ -n $packageJson ]]; then
+    scripts=("${(@f)$(cat ${packageJson} | perl -0777 -MJSON::PP -n -E 'binmode(STDOUT, ":encoding(UTF-8)"); %r=%{decode_json($_)->{scripts}}; do{$k=$_;($e=$k)=~s/:/\\:/g; printf "$e:$r{$k}\n"} for sort keys %r')}")
+  fi
 
   workspace_name="$(echo $1 | sed 's/\(\/\)[^$]/\\&/g')"
 
